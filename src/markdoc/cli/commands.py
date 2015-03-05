@@ -170,57 +170,28 @@ def clean_temp(config, args):
 @command
 def sync_static(config, args):
     """Sync static files into the HTML root."""
-
     log = logging.getLogger('markdoc.sync-static')
-
-    if not p.exists(config.html_dir):
-        log.debug('makedirs %s' % config.html_dir)
-        os.makedirs(config.html_dir)
-
-    command = ('rsync -vaxq --cvs-exclude --ignore-errors --include=.htaccess --exclude=.* --exclude=_*').split()
-    display_cmd = command[:]
-
-    if config['use-default-static']:
-        # rsync needs the paths to have trailing slashes to work correctly.
-        command.append(p.join(markdoc.default_static_dir, ''))
-        display_cmd.append(p.basename(markdoc.default_static_dir) + '/')
-
-    if not config['cvs-exclude']:
-        command.remove('--cvs-exclude')
-        display_cmd.remove('--cvs-exclude')
-
-    if p.isdir(config.static_dir):
-        command.append(p.join(config.static_dir, ''))
-        display_cmd.append(p.basename(config.static_dir) + '/')
-
-    command.append(p.join(config.html_dir, ''))
-    display_cmd.append(p.basename(config.html_dir) + '/')
-
-    log.debug(subprocess.list2cmdline(display_cmd))
-
-    subprocess.check_call(command)
-
-    log.debug('rsync completed')
-
+    sync_html(config, args, True, log)
 
 @command
-def sync_html(config, args):
+def sync_html(config, args, only_static=False, log=None):
     """Sync built HTML and static media into the HTML root."""
 
     # the previous command used here was:
-    # rsync -vaxq [--cvs-exclude] --delete --ignore-errors --include=.htaccess --exclude=.* --exclude=_*
+    # rsync -vaxq [--cvs-exclude] --delete --ignore-errors --include=.htaccess --exclude=.* --exclude=_* temp_dir/ static_dir/ [default_template_dir/] html_dir/
     # it is unclear why both verbose and quiet were specified.
 
-    log = logging.getLogger('markdoc.sync-html')
+    log = log or logging.getLogger('markdoc.sync-html')
 
-    exp = r'\..*|\_.*'
+    exp = r'^(?:\..*|\_.*'
 
     if config['cvs-exclude']:
         # simulate --cvs-exclude (behavior from rsync man page)
-        # use a couple groups to make the regex a little shorter
+        # use a couple groups to make the regex a little shorter,
+        # and support both behaviors of path.join
         cvsexp = (r'RCS|SCCS|CVS(?:\.adm)?|RCSLOG|cvslog\..*|tags|TAGS|\.make\.state|\.nse_depinfo|.*~|'
-                  r'#.*|\.#.*|,.*|_\$.*|.*\$|.*\.(?:bak|BAK)|.*\.orig|.*\.rej|\.del-.*|.*\.a|core|\.svn/|'
-                  r'.*\.o(?:bj|lb|ld)?|.*\.so|.*\.e(?:xe|lc)|.*\.Z|.*\.ln|\.git/|\.hg/|\.bzr/')
+                  r'#.*|\.#.*|,.*|_\$.*|.*\$|.*\.(?:bak|BAK)|.*\.orig|.*\.rej|\.del-.*|.*\.a|core|\.svn(?:/|\\)|'
+                  r'.*\.o(?:bj|lb|ld)?|.*\.so|.*\.e(?:xe|lc)|.*\.Z|.*\.ln|\.git(?:/|\\)|\.hg(?:/|\\)|\.bzr(?:/|\\)')
         exp += "|" + cvsexp
         try:
             with open(os.path.expanduser(".cvsignore")) as cvs:
@@ -235,8 +206,10 @@ def sync_html(config, args):
         for glob in cvsenv:
             exp += "|" + fnmatch.translate(glob)
 
+    exp += ")$"
     log.debug("Regex: {0}".format(exp))
-    exp = re.compile(exp)
+    # case insensitive on windows
+    exp = re.compile(exp, re.I) if os.name == "nt" else re.compile(exp)
 
     if not p.exists(config.html_dir):
         log.debug('makedirs %s' % config.html_dir)
@@ -247,42 +220,68 @@ def sync_html(config, args):
     # syncs a dir to the html dir
     # can't delete without knowing full merged structure of all three paths,
     # so return a structure of the filesystem copied by this call
-    def rsync(where_from):
+    # optionally, use walk_only to only walk the directory and build the return,
+    # don't copy anything
+    def rsync(where_from, walk_only=False):
         copied_files = []
         # walk the dir and sync it
         for dirname, subdirnames, filenames in os.walk(p.join(where_from, '')):
+            log.debug("entering {0}".format(dirname))
             # filter directories
             to_remove = []
             for subdirname in subdirnames:
                 subdirname = p.join(p.basename(subdirname), '') # add trailing slash
                 if exp.match(subdirname):
-                    to_remove.append(p.basename(subdirname)) # remove slash
+                    log.debug("removing subdirectory {0}".format(subdirname))
+                    to_remove.append(p.dirname(subdirname)) # remove slash
             # remove directories from listing
             for subdir in to_remove:
                 subdirnames.remove(subdir)
+
+            # when the directories' basenames both start with a '.', this function captures that
+            # so wrap in a dirname call to get only the first part
+            prefix = p.dirname(p.commonprefix([html_dir, dirname]))
+            # append the basename of where_from to make sure you don't get it in the output
+            prefix = p.join(prefix, p.basename(p.dirname(p.join(where_from, ''))))
+            # then cut all of that off the front of the dirname, make sure leading slash is not
+            # included in second arg because that resets cwd
+            target = p.join(html_dir, dirname[len(prefix)+1:])
+
+            # add directory to filesystem
+            copied_files.append(target)
 
             # copy files
             for filename in filenames:
                 # .htaccess is an exception
                 if not exp.match(p.basename(filename)) or p.basename(filename) == ".htaccess":
                     try:
-                        target = p.join(html_dir, dirname)
+                        if not p.exists(target):
+                            log.debug("makedirs {0}".format(target))
+                            os.makedirs(target)
+                        log.debug("moving {0} to {1}".format(p.join(dirname, filename), target))
                         copied_files.append(p.join(target, filename))
-                        # attempt to preserve permissions and other attributes as well as symlinks
-                        shutil.copy2(p.join(dirname, filename), target)
-                    except (IOError, OSError) as e:
+                        if not walk_only:
+                            # attempt to preserve permissions and other attributes as well as symlinks
+                            shutil.copy2(p.join(dirname, filename), target)
+                        else:
+                            log.debug("(walked only)")
+                    except (IOError, OSError, shutil.Error) as e:
                         # this is the --ignore-errors piece, I think
                         log.warning("file copy failed: {0}".format(e))
+                else:
+                    log.debug("skipping {0} (matched regex)".format(p.join(dirname, filename)))
         return copied_files
 
-    filesystem = rsync(p.join(config.tmp_dir, ''))
+    filesystem = rsync(p.join(config.temp_dir, ''), walk_only=only_static)
     if config['use-default-static']:
         filesystem += rsync(p.join(markdoc.default_static_dir, ''))
     if p.isdir(config.static_dir):
         filesystem += rsync(p.join(config.static_dir, ''))
 
     # munge files to get rid of the /dir/./other_dir that shows up
-    filesystem = [s.replace('./', '') for s in filesystem]
+    filesystem = [p.normpath(s) for s in filesystem]
+
+    log.debug("mirroring filesystem to {0}: {1}".format(html_dir, filesystem))
 
     # delete files
     # ignore (but log) errors to comply with the old command's --ignore-errors flag
@@ -291,7 +290,7 @@ def sync_html(config, args):
         deleted = []
         for subdir in subdirnames:
             full_subdir = p.join(dirname, subdir)
-            if full_subdir not in filesystem:
+            if full_subdir not in filesystem and not exp.match(subdir):
                 deleted.append(subdir)
                 log.debug("recursively deleting directory {0}".format(full_subdir))
                 # delete directory
@@ -299,16 +298,16 @@ def sync_html(config, args):
                     for name in files:
                         try:
                             os.remove(os.path.join(root, name))
-                        except (IOError, OSError) as e:
+                        except (IOError, OSError, shutil.Error) as e:
                             log.warning("file delete failed: {0}".format(e))
                     for name in dirs:
                         try:
                             os.rmdir(os.path.join(root, name))
-                        except (IOError, OSError) as e:
+                        except (IOError, OSError, shutil.Error) as e:
                             log.warning("directory delete failed: {0}".format(e))
                 try:
                     os.rmdir(full_subdir)
-                except (IOError, OSError) as e:
+                except (IOError, OSError, shutil.Error) as e:
                     log.warning("directory delete failed: {0}".format(e))
         # don't walk deleted directories
         for subdir in deleted:
@@ -317,15 +316,14 @@ def sync_html(config, args):
         # delete files
         for filename in filenames:
             full_name = p.join(dirname, filename)
-            if full_name not in filesystem:
+            if full_name not in filesystem and not exp.match(filename):
                 log.debug("deleting file {0}".format(full_name))
                 try:
                     os.remove(full_name)
-                except (IOError, OSError) as e:
+                except (IOError, OSError, shutil.Error) as e:
                     log.warning("file delete failed: {0}".format(e))
 
     log.debug('sync complete')
-
 
 ## Building
 
