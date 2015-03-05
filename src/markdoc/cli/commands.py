@@ -25,9 +25,9 @@ def command(function):
     parser = subparsers.add_parser(cmd_name, help=help)
 
     @wraps(function)
-    def wrapper(config, args):
+    def wrapper(config, *args, **kwargs):
         logging.getLogger('markdoc').debug('Running markdoc.%s' % cmd_name)
-        return function(config, args)
+        return function(config, *args, **kwargs)
 
     wrapper.parser = parser
 
