@@ -5,7 +5,6 @@ import os
 import argparse
 
 import markdoc
-from markdoc.config import Config
 
 
 parser = argparse.ArgumentParser(**{
