@@ -8,12 +8,8 @@ import webob
 
 from markdoc.render import make_relative
 
-
 if not mimetypes.inited:
     mimetypes.init()
-# Assume all HTML files are XHTML.
-mimetypes.types_map['.html'] = mimetypes.types_map['.xhtml']
-
 
 class MarkdocWSGIApplication(object):
     
@@ -162,7 +158,7 @@ class MarkdocWSGIApplication(object):
             
             template = self.config.template_env.get_template('%d.html' % status)
             response.unicode_body = template.render(context)
-            response.content_type = mimetypes.types_map['.xhtml']
+            response.content_type = mimetypes.types_map['.html']
         else:
             del response.content_length
             del response.content_type
@@ -199,16 +195,13 @@ def serve_file(filename, content_type=None, chunk_size=4096):
     
     You can also specify a content type with the `content_type` keyword
     argument. If you do not, the content type will be inferred from the
-    filename; so 'index.html' will be interpreted as 'application/xhtml+xml',
+    filename; so 'index.html' will be interpreted as 'text/html',
     'file.mp3' as 'audio/mpeg', et cetera. If none can be guessed, the content
     type will be reported as 'application/octet-stream'.
     """
     
     if content_type is None:
         content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-    
-    if content_type.startswith('text/html'):
-        content_type = content_type.replace('text/html', 'application/xhtml+xml')
     
     def chunked_read(chunk_size=4096):
         fp = open(filename, 'rb')
