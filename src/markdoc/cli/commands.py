@@ -178,7 +178,8 @@ def sync_html(config, args, only_static=False, log=None):
     """Sync built HTML and static media into the HTML root."""
 
     # the previous command used here was:
-    # rsync -vaxq [--cvs-exclude] --delete --ignore-errors --include=.htaccess --exclude=.* --exclude=_* temp_dir/ static_dir/ [default_template_dir/] html_dir/
+    # rsync -vaxq [--cvs-exclude] --delete --ignore-errors --include=.htaccess --exclude=.* \
+    #       --exclude=_* temp_dir/ static_dir/ [default_template_dir/] html_dir/
     # it is unclear why both verbose and quiet were specified.
 
     log = log or logging.getLogger('markdoc.sync-html')
