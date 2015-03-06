@@ -66,7 +66,7 @@ Potential use cases for Markdoc include, but aren’t limited to:
 
 The minimum requirements to run the Markdoc utility are:
 
-  * Python 2.6 or later
+  * Python 2.4 or later (2.5+ highly recommended)
 
 I believe I've gotten Markdoc working fine on Windows systems (at least under the MinGW installed with Git), and
 I rewrote the `rsync` dependency in Python so that is no longer a stumbling block for Windows users or distros without it.

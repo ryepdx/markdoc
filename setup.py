@@ -4,9 +4,10 @@ import os
 import os.path as p
 import re
 
-from distribute_setup import use_setuptools; use_setuptools()
-from setuptools import setup, find_packages
+from ez_setup import use_setuptools
 
+use_setuptools()
+from setuptools import setup, find_packages
 
 rel_file = lambda *args: p.join(p.dirname(p.abspath(__file__)), *args)
 
@@ -21,22 +22,22 @@ def read_from(filename):
 if not hasattr(p, 'relpath'):
     def relpath(path, start=p.curdir):
         """Return a relative version of a path"""
-        
+
         if not path:
             raise ValueError("no path specified")
-        
+
         start_list = p.abspath(start).split(p.sep)
         path_list = p.abspath(path).split(p.sep)
-        
+
         # Work out how much of the filepath is shared by start and path.
         i = len(p.commonprefix([start_list, path_list]))
-        
-        rel_list = [p.pardir] * (len(start_list)-i) + path_list[i:]
+
+        rel_list = [p.pardir] * (len(start_list) - i) + path_list[i:]
         if not rel_list:
             return p.curdir
         return p.join(*rel_list)
-    p.relpath = relpath
 
+    p.relpath = relpath
 
 def get_version():
     data = read_from(rel_file('src', 'markdoc', '__init__.py'))
@@ -47,7 +48,6 @@ def get_requirements():
     data = read_from(rel_file('REQUIREMENTS'))
     lines = map(lambda s: s.strip(), data.splitlines())
     return filter(None, lines)
-
 
 def find_package_data():
     files = []
@@ -61,15 +61,32 @@ def find_package_data():
     return files
 
 setup(
-    name             = 'Markdoc',
-    version          = get_version(),
-    author           = "Zachary Voase",
-    author_email     = "zacharyvoase@me.com",
-    url              = 'http://github.com/zacharyvoase/markdoc',
-    description      = "A lightweight Markdown-based wiki build tool.",
-    packages         = find_packages(where='src'),
-    package_dir      = {'': 'src'},
-    package_data     = {'markdoc': find_package_data()},
-    entry_points     = {'console_scripts': ['markdoc = markdoc.cli.main:main']},
-    install_requires = get_requirements(),
+    name='Markdoc',
+    version=get_version(),
+    keywords="markdown wiki",
+    author="Zachary Voase",
+    author_email="zacharyvoase@me.com",
+    maintainer="Alex Van Liew",
+    maintainer_email="snoozbuster@outlook.com",
+    url='http://github.com/snoozbuster/markdoc',
+    description="A lightweight Markdown-based wiki build tool.",
+    long_description=read_from(rel_file('README.md')),
+    packages=find_packages(where='src'),
+    package_dir={'': 'src'},
+    package_data={'markdoc': find_package_data()},
+    entry_points={'console_scripts': ['markdoc = markdoc.cli.main:main']},
+    install_requires=[
+        'argparse',
+        'CherryPy',
+        'Jinja2',
+        'Markdown',
+        'Pygments',
+        'PyYAML',
+        'webob',
+    ],
+    classifiers=[
+        'Development Status :: 5 - Production/Stable',
+        'Environment :: Console',
+    ],
+    license='Unlicense',
 )
